@@ -8,6 +8,20 @@ if (process.env.BOT_TOKEN === undefined) {
   throw new Error("BOT_TOKEN must be provided. Please check your .env file.");
 }
 
+var DEVELOPMENT_SERVER_ID;
+if (process.env.MODE !== "production") {
+  if (process.env.DEVELOPMENT_SERVER_ID === undefined) {
+    throw new Error(
+      "DEVELOPMENT_SERVER_ID must be provided when not running in production mode. Please check your .env file."
+    );
+  }
+  DEVELOPMENT_SERVER_ID = process.env.DEVELOPMENT_SERVER_ID;
+
+  console.warn(
+    "You are not running in production mode. In this mode, the bot will not respond to messages except for the ones whitelisted in the `DEVELOPMENT_SERVERS` variable."
+  );
+}
+
 var openai;
 if (process.env.OPENAI_API_KEY === undefined) {
   console.warn("OPENAI_API_KEY is not provided. Please check your .env file.");
@@ -30,6 +44,17 @@ client.on("ready", () => {
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+
+  if (
+    process.env.MODE !== "production" &&
+    message.guild.id !== DEVELOPMENT_SERVER_ID
+  ) {
+    await message.react("⚠️");
+    await message.reply(
+      "Sorry! I'm currently being developed as we're speaking, so I won't be able to respond to your message. Please try again later."
+    );
+    return;
+  }
 
   if (message.mentions.users.has(client.user.id)) {
     const thinkingPrompts = [
