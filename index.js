@@ -50,7 +50,7 @@ client.on("messageCreate", async (message) => {
           {
             role: "system",
             content:
-              "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Only write less than 434 tokens, which is 2000 characters.",
+              "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Try to sound like how a teenager would interact, being informal, but do not overdo it. Only write less than 434 tokens, which is 2000 characters.",
           },
           {
             role: "user",
@@ -58,20 +58,24 @@ client.on("messageCreate", async (message) => {
           },
         ],
         model: "gpt-4-1106-preview",
-        max_tokens: 434, // 434 ~ 2000 characters, which is the limit for Discord messages.
+        max_tokens: 415, // 415 ~ <2000 characters, which is the limit for Discord messages.
       });
-
-      response.delete();
 
       // Discord has a limit of 2000 characters per message, so we need to split the response into multiple messages if it's too long.
       const responseText = completion.choices[0].message.content;
       const responseMessages = responseText.match(/[\s\S]{1,2000}/g);
-      for (const responseMessage of responseMessages) {
-        if (responseMessage === responseMessages[0]) {
-          message.reply(responseMessage);
-        } else {
-          message.channel.send(responseMessage);
+
+      if (responseMessages.length > 1) {
+        response.delete();
+        for (const responseMessage of responseMessages) {
+          if (responseMessage === responseMessages[0]) {
+            await message.reply(responseMessage);
+          } else {
+            await message.channel.send(responseMessage);
+          }
         }
+      } else {
+        await response.edit(responseText);
       }
 
       clearInterval(typingInterval);
