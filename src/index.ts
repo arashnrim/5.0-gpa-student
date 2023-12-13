@@ -1,6 +1,12 @@
 import dotenv from "dotenv";
 import { Client, GatewayIntentBits } from "discord.js";
 import OpenAI from "openai";
+import {
+  ERROR_REACTION,
+  IN_DEVELOPMENT_STRING,
+  SUCCESS_REACTION,
+  TEXT_GENERATION_ERROR_STRING,
+} from "./constants";
 
 dotenv.config();
 
@@ -8,8 +14,8 @@ if (process.env.BOT_TOKEN === undefined) {
   throw new Error("BOT_TOKEN must be provided. Please check your .env file.");
 }
 
-var DEVELOPMENT_SERVER_ID;
-if (process.env.MODE !== "production") {
+var DEVELOPMENT_SERVER_ID: undefined | string;
+if (process.env.NODE_ENV !== "production") {
   if (process.env.DEVELOPMENT_SERVER_ID === undefined) {
     throw new Error(
       "DEVELOPMENT_SERVER_ID must be provided when not running in production mode. Please check your .env file."
@@ -22,7 +28,7 @@ if (process.env.MODE !== "production") {
   );
 }
 
-var openai;
+var openai: undefined | OpenAI;
 if (process.env.OPENAI_API_KEY === undefined) {
   console.warn("OPENAI_API_KEY is not provided. Please check your .env file.");
   console.warn("You will not be able to use the completion feature.");
@@ -39,6 +45,12 @@ const client = new Client({
 });
 
 client.on("ready", () => {
+  if (client.user === null) {
+    throw new Error(
+      "`client.user` is null. This should never happen. Investigate immediately."
+    );
+  }
+
   console.log(`Logged in as ${client.user.tag}! Listening for events...`);
 });
 
@@ -46,16 +58,20 @@ client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   if (
-    process.env.MODE !== "production" &&
+    process.env.NODE_ENV !== "production" &&
+    message.guild &&
     message.guild.id !== DEVELOPMENT_SERVER_ID
   ) {
-    await message.react("⚠️");
-    await message.reply(
-      "Sorry! I'm currently being developed as we're speaking, so I won't be able to respond to your message. Please try again later."
-    );
+    await message.react(ERROR_REACTION);
+    await message.reply(IN_DEVELOPMENT_STRING);
     return;
   }
 
+  if (client.user === null) {
+    throw new Error(
+      "`client.user` is null. This should never happen. Investigate immediately."
+    );
+  }
   if (message.mentions.users.has(client.user.id)) {
     const thinkingPrompts = [
       "Let me think...",
@@ -88,10 +104,23 @@ client.on("messageCreate", async (message) => {
 
       // Discord has a limit of 2000 characters per message, so we need to split the response into multiple messages if it's too long.
       const responseText = completion.choices[0].message.content;
+      if (responseText === null) {
+        await response.edit(TEXT_GENERATION_ERROR_STRING);
+        await message.react(ERROR_REACTION);
+        clearInterval(typingInterval);
+        return;
+      }
+
       const responseMessages = responseText.match(/[\s\S]{1,2000}/g);
+      if (responseMessages === null) {
+        await response.edit(TEXT_GENERATION_ERROR_STRING);
+        await message.react(ERROR_REACTION);
+        clearInterval(typingInterval);
+        return;
+      }
 
       if (responseMessages.length > 1) {
-        response.delete();
+        await response.delete();
         for (const responseMessage of responseMessages) {
           if (responseMessage === responseMessages[0]) {
             await message.reply(responseMessage);
@@ -103,9 +132,8 @@ client.on("messageCreate", async (message) => {
         await response.edit(responseText);
       }
 
+      await message.react(SUCCESS_REACTION);
       clearInterval(typingInterval);
-
-      message.react("👍");
     }
   }
 });
