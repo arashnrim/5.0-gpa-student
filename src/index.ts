@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { Client, GatewayIntentBits } from "discord.js";
+import { Client, GatewayIntentBits, MessageType } from "discord.js";
 import OpenAI from "openai";
 import {
   ERROR_REACTION,
@@ -7,6 +7,8 @@ import {
   SUCCESS_REACTION,
   TEXT_GENERATION_ERROR_STRING,
 } from "./constants";
+import { JSONPreset } from "lowdb/node";
+import { Database, MessageRole } from "./db";
 
 dotenv.config();
 
@@ -43,6 +45,10 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
   ],
 });
+const db = await JSONPreset<Database>("db.json", {
+  conversations: [],
+  lastUpdated: 0,
+});
 
 client.on("ready", () => {
   if (client.user === null) {
@@ -72,6 +78,7 @@ client.on("messageCreate", async (message) => {
       "`client.user` is null. This should never happen. Investigate immediately."
     );
   }
+
   if (message.mentions.users.has(client.user.id)) {
     const thinkingPrompts = [
       "Let me think...",
@@ -86,6 +93,16 @@ client.on("messageCreate", async (message) => {
       const typingInterval = setInterval(() => {
         message.channel.sendTyping();
       }, 9000);
+
+      var conversation;
+      if (message.type === MessageType.Reply) {
+        conversation = db.data.conversations.find((c) => {
+          return c.messages.some((m) => {
+            return m.id === message.reference?.messageId;
+          });
+        });
+      }
+
       const completion = await openai.chat.completions.create({
         messages: [
           {
@@ -93,6 +110,12 @@ client.on("messageCreate", async (message) => {
             content:
               "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Try to sound like how a teenager would interact, being informal, but do not overdo it. Only write less than 434 tokens, which is 2000 characters.",
           },
+          ...(conversation
+            ? conversation.messages.map((conversationMessage) => ({
+                role: conversationMessage.role,
+                content: conversationMessage.content,
+              }))
+            : []),
           {
             role: "user",
             content: message.content,
@@ -119,21 +142,53 @@ client.on("messageCreate", async (message) => {
         return;
       }
 
-      if (responseMessages.length > 1) {
-        await response.delete();
-        for (const responseMessage of responseMessages) {
-          if (responseMessage === responseMessages[0]) {
-            await message.reply(responseMessage);
-          } else {
-            await message.channel.send(responseMessage);
-          }
-        }
+      await response.edit(responseText);
+      if (message.type !== MessageType.Reply) {
+        db.data.conversations.push({
+          messages: [
+            {
+              id: message.id,
+              content: message.content,
+              role: MessageRole.User,
+            },
+            {
+              id: response.id,
+              content: responseText,
+              role: MessageRole.Assistant,
+            },
+          ],
+          lastUpdated: Date.now(),
+        });
       } else {
-        await response.edit(responseText);
+        const conversation = db.data.conversations.find((c) => {
+          return c.messages.some((m) => {
+            return m.id === message.reference?.messageId;
+          });
+        });
+
+        if (conversation) {
+          conversation.messages.push(
+            ...[
+              {
+                id: message.id,
+                content: message.content,
+                role: MessageRole.User,
+              },
+              {
+                id: response.id,
+                content: responseText,
+                role: MessageRole.Assistant,
+              },
+            ]
+          );
+          conversation.lastUpdated = Date.now();
+        }
       }
+      db.data.lastUpdated = Date.now();
 
       await message.react(SUCCESS_REACTION);
       clearInterval(typingInterval);
+      db.write();
     }
   }
 });
