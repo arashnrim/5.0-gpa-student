@@ -81,9 +81,12 @@ client.on("messageCreate", async (message) => {
 
   if (message.mentions.users.has(client.user.id)) {
     const thinkingPrompts = [
-      "Let me think...",
-      "Got it, give me a sec...",
-      "Let me see...",
+      "Hmm, let me think for a moment...",
+      "Give me a sec, I'm pondering...",
+      "Let me wrap my head around that...",
+      "Hold on, I'm processing...",
+      "Just a moment, I'm brainstorming...",
+      "Hmm, interesting thoughts! Let me come up with an answer...",
     ];
     const response = await message.reply(
       thinkingPrompts[Math.floor(Math.random() * thinkingPrompts.length)]
