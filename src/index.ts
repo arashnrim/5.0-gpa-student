@@ -1,5 +1,10 @@
 import dotenv from "dotenv";
-import { Client, GatewayIntentBits, MessageType } from "discord.js";
+import {
+  ActivityType,
+  Client,
+  GatewayIntentBits,
+  MessageType,
+} from "discord.js";
 import OpenAI from "openai";
 import {
   ERROR_REACTION,
@@ -50,6 +55,34 @@ const db = await JSONPreset<Database>("db.json", {
   lastUpdated: 0,
 });
 
+enum BotStatus {
+  Ready,
+  Thinking,
+}
+
+const setBotStatus = (status: BotStatus) => {
+  if (client.user === null) {
+    throw new Error(
+      "`client.user` is null. This should never happen. Investigate immediately."
+    );
+  }
+
+  switch (status) {
+    case BotStatus.Ready:
+      client.user.setActivity({
+        type: ActivityType.Custom,
+        name: "👀 Watching for pings",
+      });
+      break;
+    case BotStatus.Thinking:
+      client.user.setActivity({
+        type: ActivityType.Custom,
+        name: "🤔 Thinking...",
+      });
+      break;
+  }
+};
+
 client.on("ready", () => {
   if (client.user === null) {
     throw new Error(
@@ -57,46 +90,52 @@ client.on("ready", () => {
     );
   }
 
+  setBotStatus(BotStatus.Ready);
+
   console.log(`Logged in as ${client.user.tag}! Listening for events...`);
 });
 
 client.on("messageCreate", async (message) => {
-  if (message.author.bot) return;
-
-  if (
-    process.env.NODE_ENV !== "production" &&
-    message.guild &&
-    message.guild.id !== DEVELOPMENT_SERVER_ID
-  ) {
-    await message.react(ERROR_REACTION);
-    await message.reply(IN_DEVELOPMENT_STRING);
-    return;
-  }
-
   if (client.user === null) {
     throw new Error(
       "`client.user` is null. This should never happen. Investigate immediately."
     );
   }
 
+  if (message.author.bot) return;
+  console.info(
+    `Received message (${message.id}) from ${
+      message.author.tag
+    }: ${message.content.slice(0, 15)}...`
+  );
+
   if (message.mentions.users.has(client.user.id)) {
+    if (
+      process.env.NODE_ENV !== "production" &&
+      message.guild &&
+      message.guild.id !== DEVELOPMENT_SERVER_ID
+    ) {
+      await message.react(ERROR_REACTION);
+      await message.reply(IN_DEVELOPMENT_STRING);
+      console.info(
+        `Replied to ${message.id} from ${message.author.tag} with \`IN_DEVELOPMENT_STRING\`.`
+      );
+      return;
+    }
+
     const thinkingPrompts = [
-      "Hmm, let me think for a moment...",
-      "Give me a sec, I'm pondering...",
-      "Let me wrap my head around that...",
-      "Hold on, I'm processing...",
+      "Hmm, lemme think for a moment...",
+      "Gimme a sec, I'm thinking...",
+      "Lemme wrap my head around that...",
+      "Hollon, I'm processing...",
       "Just a moment, I'm brainstorming...",
-      "Hmm, interesting thoughts! Let me come up with an answer...",
+      "Coming up with an answer...",
     ];
     const response = await message.reply(
       thinkingPrompts[Math.floor(Math.random() * thinkingPrompts.length)]
     );
 
     if (openai !== undefined) {
-      const typingInterval = setInterval(() => {
-        message.channel.sendTyping();
-      }, 9000);
-
       var conversation;
       if (message.type === MessageType.Reply) {
         conversation = db.data.conversations.find((c) => {
@@ -106,12 +145,13 @@ client.on("messageCreate", async (message) => {
         });
       }
 
+      setBotStatus(BotStatus.Thinking);
       const completion = await openai.chat.completions.create({
         messages: [
           {
             role: "system",
             content:
-              "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Try to sound like how a teenager would interact, being informal, but do not overdo it. Only write less than 434 tokens, which is 2000 characters.",
+              "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Try to sound like how a teenager would interact, being informal, but do not overdo it. Because the medium you are communicating with them through is text, keep the content succinct and short for text.",
           },
           ...(conversation
             ? conversation.messages.map((conversationMessage) => ({
@@ -125,27 +165,37 @@ client.on("messageCreate", async (message) => {
           },
         ],
         model: "gpt-4-1106-preview",
-        max_tokens: 415, // 415 ~ <2000 characters, which is the limit for Discord messages.
+        max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
       });
 
-      // Discord has a limit of 2000 characters per message, so we need to split the response into multiple messages if it's too long.
-      const responseText = completion.choices[0].message.content;
+      var responseText = completion.choices[0].message.content;
       if (responseText === null) {
+        console.warn(
+          `Generated message is null; this is unexpected. Replied to ${message.id} from ${message.author.tag} with \`TEXT_GENERATION_ERROR_STRING\`.`
+        );
         await response.edit(TEXT_GENERATION_ERROR_STRING);
         await message.react(ERROR_REACTION);
-        clearInterval(typingInterval);
+        setBotStatus(BotStatus.Ready);
+        return;
+      }
+      responseText = responseText.substring(0, 2000); // Trims the response to 2000 characters if, for some reason, the generated response exceeds the limit
+
+      try {
+        await response.edit(responseText);
+        await message.react(SUCCESS_REACTION);
+        console.info(
+          `Replied to ${message.id} from ${
+            message.author.tag
+          } with generated response: ${responseText.substring(0, 15)}...`
+        );
+      } catch (error) {
+        console.error(error);
+        await response.edit(TEXT_GENERATION_ERROR_STRING);
+        await message.react(ERROR_REACTION);
+        setBotStatus(BotStatus.Ready);
         return;
       }
 
-      const responseMessages = responseText.match(/[\s\S]{1,2000}/g);
-      if (responseMessages === null) {
-        await response.edit(TEXT_GENERATION_ERROR_STRING);
-        await message.react(ERROR_REACTION);
-        clearInterval(typingInterval);
-        return;
-      }
-
-      await response.edit(responseText);
       if (message.type !== MessageType.Reply) {
         db.data.conversations.push({
           messages: [
@@ -189,9 +239,8 @@ client.on("messageCreate", async (message) => {
       }
       db.data.lastUpdated = Date.now();
 
-      await message.react(SUCCESS_REACTION);
-      clearInterval(typingInterval);
       db.write();
+      setBotStatus(BotStatus.Ready);
     }
   }
 });
