@@ -10,6 +10,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/generative-ai": "^0.1.1",
     "discord.js": "^14.14.1",
     "dotenv": "^16.3.1",
     "lowdb": "^6.1.1",

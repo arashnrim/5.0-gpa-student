@@ -3,17 +3,19 @@ import {
   ActivityType,
   Client,
   GatewayIntentBits,
+  Message,
   MessageType,
 } from "discord.js";
 import OpenAI from "openai";
 import {
   ERROR_REACTION,
   IN_DEVELOPMENT_STRING,
+  PROMPT,
   SUCCESS_REACTION,
   TEXT_GENERATION_ERROR_STRING,
 } from "./constants";
-import { JSONPreset } from "lowdb/node";
-import { Database, MessageRole } from "./db";
+import { db, GoogleMessageRole, OpenAIMessageRole, Platform } from "./util/db";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 
@@ -38,9 +40,20 @@ if (process.env.NODE_ENV !== "production") {
 var openai: undefined | OpenAI;
 if (process.env.OPENAI_API_KEY === undefined) {
   console.warn("OPENAI_API_KEY is not provided. Please check your .env file.");
-  console.warn("You will not be able to use the completion feature.");
+  console.warn(
+    "You will not be able to use the completion feature using OpenAI's GPT models."
+  );
 } else {
   openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
+var google: undefined | GoogleGenerativeAI;
+if (process.env.GOOGLE_API_KEY === undefined) {
+  console.warn("GOOGLE_API_KEY is not provided. Please check your .env file.");
+  console.warn(
+    "You will not be able to use the completion feature using Google's Gemini models."
+  );
+} else {
+  google = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 }
 
 const client = new Client({
@@ -49,10 +62,6 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
   ],
-});
-const db = await JSONPreset<Database>("db.json", {
-  conversations: [],
-  lastUpdated: 0,
 });
 
 enum BotStatus {
@@ -131,118 +140,176 @@ client.on("messageCreate", async (message) => {
       "Just a moment, I'm brainstorming...",
       "Coming up with an answer...",
     ];
-    const response = await message.reply(
+    const responseMessage = await message.reply(
       thinkingPrompts[Math.floor(Math.random() * thinkingPrompts.length)]
     );
 
-    if (openai !== undefined) {
-      var conversation;
-      if (message.type === MessageType.Reply) {
-        conversation = db.data.conversations.find((c) => {
-          return c.messages.some((m) => {
-            return m.id === message.reference?.messageId;
-          });
-        });
-      }
+    setBotStatus(BotStatus.Thinking);
+    var generatedResponse = await generateResponse(message);
+    if (generatedResponse === null || generatedResponse === undefined) {
+      console.warn(
+        `Generated message is null; this is unexpected. Replied to ${message.id} from ${message.author.tag} with \`TEXT_GENERATION_ERROR_STRING\`.`
+      );
+      await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
+      await message.react(ERROR_REACTION);
+      setBotStatus(BotStatus.Ready);
+      return;
+    }
+    var [responseText, platform] = generatedResponse;
 
-      setBotStatus(BotStatus.Thinking);
-      const completion = await openai.chat.completions.create({
+    responseText = responseText.substring(0, 2000); // Trims the response to 2000 characters if, for some reason, the generated response exceeds the limit
+
+    try {
+      await responseMessage.edit(responseText);
+      await message.react(SUCCESS_REACTION);
+      console.info(
+        `Replied to ${message.id} from ${
+          message.author.tag
+        } with generated response (using ${platform}): ${responseText.slice(
+          0,
+          15
+        )}...`
+      );
+    } catch (error) {
+      console.error(error);
+      await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
+      await message.react(ERROR_REACTION);
+      setBotStatus(BotStatus.Ready);
+      return;
+    }
+
+    if (message.type !== MessageType.Reply) {
+      db.data.conversations.push({
         messages: [
           {
-            role: "system",
-            content:
-              "Your main goal is to help a group of students to better understand content they're learning in school. When asked about something, give a concise yet specific answer to the prompt. Approach the problem with a personable and friendly tone, encouraging learning at every step of the way. Try to sound like how a teenager would interact, being informal, but do not overdo it. Because the medium you are communicating with them through is text, keep the content succinct and short for text.",
-          },
-          ...(conversation
-            ? conversation.messages.map((conversationMessage) => ({
-                role: conversationMessage.role,
-                content: conversationMessage.content,
-              }))
-            : []),
-          {
-            role: "user",
+            id: message.id,
             content: message.content,
+            role:
+              platform === Platform.OpenAI
+                ? OpenAIMessageRole.User
+                : GoogleMessageRole.User,
+          },
+          {
+            id: message.id,
+            content: responseText,
+            role:
+              platform === Platform.OpenAI
+                ? OpenAIMessageRole.Assistant
+                : GoogleMessageRole.Model,
           },
         ],
-        model: "gpt-4-1106-preview",
-        max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
+        platform,
+        lastUpdated: Date.now(),
+      });
+    } else {
+      const conversation = db.data.conversations.find((c) => {
+        return c.messages.some((m) => {
+          return m.id === message.reference?.messageId;
+        });
       });
 
-      var responseText = completion.choices[0].message.content;
-      if (responseText === null) {
-        console.warn(
-          `Generated message is null; this is unexpected. Replied to ${message.id} from ${message.author.tag} with \`TEXT_GENERATION_ERROR_STRING\`.`
-        );
-        await response.edit(TEXT_GENERATION_ERROR_STRING);
-        await message.react(ERROR_REACTION);
-        setBotStatus(BotStatus.Ready);
-        return;
-      }
-      responseText = responseText.substring(0, 2000); // Trims the response to 2000 characters if, for some reason, the generated response exceeds the limit
-
-      try {
-        await response.edit(responseText);
-        await message.react(SUCCESS_REACTION);
-        console.info(
-          `Replied to ${message.id} from ${
-            message.author.tag
-          } with generated response: ${responseText.substring(0, 15)}...`
-        );
-      } catch (error) {
-        console.error(error);
-        await response.edit(TEXT_GENERATION_ERROR_STRING);
-        await message.react(ERROR_REACTION);
-        setBotStatus(BotStatus.Ready);
-        return;
-      }
-
-      if (message.type !== MessageType.Reply) {
-        db.data.conversations.push({
-          messages: [
+      if (conversation) {
+        conversation.messages.push(
+          ...[
             {
               id: message.id,
               content: message.content,
-              role: MessageRole.User,
+              role:
+                platform === Platform.OpenAI
+                  ? OpenAIMessageRole.User
+                  : GoogleMessageRole.User,
             },
             {
-              id: response.id,
+              id: message.id,
               content: responseText,
-              role: MessageRole.Assistant,
+              role:
+                platform === Platform.OpenAI
+                  ? OpenAIMessageRole.Assistant
+                  : GoogleMessageRole.Model,
             },
-          ],
-          lastUpdated: Date.now(),
-        });
-      } else {
-        const conversation = db.data.conversations.find((c) => {
-          return c.messages.some((m) => {
-            return m.id === message.reference?.messageId;
-          });
-        });
-
-        if (conversation) {
-          conversation.messages.push(
-            ...[
-              {
-                id: message.id,
-                content: message.content,
-                role: MessageRole.User,
-              },
-              {
-                id: response.id,
-                content: responseText,
-                role: MessageRole.Assistant,
-              },
-            ]
-          );
-          conversation.lastUpdated = Date.now();
-        }
+          ]
+        );
+        conversation.platform = platform;
+        conversation.lastUpdated = Date.now();
       }
-      db.data.lastUpdated = Date.now();
-
-      db.write();
-      setBotStatus(BotStatus.Ready);
     }
+    db.data.lastUpdated = Date.now();
+    db.write();
+
+    setBotStatus(BotStatus.Ready);
   }
 });
+
+const generateResponse = async (
+  responseMessage: Message
+): Promise<[string, Platform] | null | undefined> => {
+  var conversation;
+  if (responseMessage.type === MessageType.Reply) {
+    conversation = db.data.conversations.find((c) => {
+      return c.messages.some((m) => {
+        return m.id === responseMessage.reference?.messageId;
+      });
+    });
+  }
+
+  if (
+    (conversation?.platform === Platform.Google ||
+      (conversation?.platform === undefined &&
+        db.data.defaultPlatform === Platform.Google)) &&
+    google !== undefined
+  ) {
+    const model = google.getGenerativeModel({ model: "gemini-pro" });
+    const chat = model.startChat({
+      history: [
+        ...(conversation
+          ? conversation.messages.map((conversationMessage) => ({
+              role: conversationMessage.role as GoogleMessageRole,
+              parts: conversationMessage.content,
+            }))
+          : []),
+      ],
+      generationConfig: {
+        maxOutputTokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
+      },
+    });
+
+    const completion = await chat.sendMessage(responseMessage.content);
+    const response = await completion.response;
+    return [response.text(), Platform.Google];
+  } else if (
+    (conversation?.platform === Platform.OpenAI ||
+      (conversation?.platform === undefined &&
+        db.data.defaultPlatform === Platform.OpenAI)) &&
+    openai !== undefined
+  ) {
+    const completion = await openai.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: PROMPT,
+        },
+        ...(conversation
+          ? conversation.messages.map((conversationMessage) => ({
+              role: conversationMessage.role as OpenAIMessageRole,
+              content: conversationMessage.content,
+            }))
+          : []),
+        {
+          role: "user",
+          content: responseMessage.content,
+        },
+      ],
+      model: "gpt-4-1106-preview",
+      max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
+    });
+
+    const responseText = completion.choices[0].message.content;
+    if (responseText === null) {
+      return null;
+    } else {
+      return [responseText, Platform.OpenAI];
+    }
+  }
+};
 
 client.login(process.env.BOT_TOKEN);
