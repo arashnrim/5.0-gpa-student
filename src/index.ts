@@ -1,11 +1,13 @@
-import dotenv from "dotenv";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   ActivityType,
   Client,
+  Collection,
   GatewayIntentBits,
   Message,
   MessageType,
 } from "discord.js";
+import dotenv from "dotenv";
 import OpenAI from "openai";
 import {
   ERROR_REACTION,
@@ -14,8 +16,8 @@ import {
   SUCCESS_REACTION,
   TEXT_GENERATION_ERROR_STRING,
 } from "./constants";
-import { db, GoogleMessageRole, OpenAIMessageRole, Platform } from "./util/db";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleMessageRole, OpenAIMessageRole, Platform, db } from "./util/db";
+import { getSlashCommands } from "./util/slashCommands";
 
 dotenv.config();
 
@@ -63,10 +65,12 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
   ],
 });
+const commands = await getSlashCommands();
 
 enum BotStatus {
   Ready,
   Thinking,
+  InDevelopment,
 }
 
 const setBotStatus = (status: BotStatus) => {
@@ -89,17 +93,59 @@ const setBotStatus = (status: BotStatus) => {
         name: "🤔 Thinking...",
       });
       break;
+    case BotStatus.InDevelopment:
+      client.user.setActivity({
+        type: ActivityType.Custom,
+        name: "🛠️ In development",
+      });
   }
 };
 
-client.on("ready", () => {
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+  console.info(
+    `Received interaction (${interaction.id}) from ${interaction.user.tag}: ${interaction.commandName}`
+  );
+
+  const command = (commands as Collection<string, any>).get(
+    interaction.commandName
+  );
+  if (!command) {
+    console.warn(
+      `Received interaction (${interaction.id}) from ${interaction.user.tag} for unknown command ${interaction.commandName}.`
+    );
+    return;
+  }
+
+  try {
+    await command.execute(interaction);
+  } catch (error) {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: error as string,
+        ephemeral: true,
+      });
+    } else {
+      await interaction.reply({
+        content: error as string,
+        ephemeral: true,
+      });
+    }
+  }
+});
+
+client.on("ready", async () => {
   if (client.user === null) {
     throw new Error(
       "`client.user` is null. This should never happen. Investigate immediately."
     );
   }
 
-  setBotStatus(BotStatus.Ready);
+  setBotStatus(
+    process.env.NODE_ENV !== "production"
+      ? BotStatus.InDevelopment
+      : BotStatus.Ready
+  );
 
   console.log(`Logged in as ${client.user.tag}! Listening for events...`);
 });
