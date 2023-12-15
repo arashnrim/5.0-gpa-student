@@ -105,6 +105,8 @@ client.on("ready", () => {
 });
 
 client.on("messageCreate", async (message) => {
+  db.read();
+
   if (client.user === null) {
     throw new Error(
       "`client.user` is null. This should never happen. Investigate immediately."
@@ -190,7 +192,7 @@ client.on("messageCreate", async (message) => {
                 : GoogleMessageRole.User,
           },
           {
-            id: message.id,
+            id: responseMessage.id,
             content: responseText,
             role:
               platform === Platform.OpenAI
@@ -220,7 +222,7 @@ client.on("messageCreate", async (message) => {
                   : GoogleMessageRole.User,
             },
             {
-              id: message.id,
+              id: responseMessage.id,
               content: responseText,
               role:
                 platform === Platform.OpenAI

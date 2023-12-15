@@ -53,7 +53,7 @@ export const mapToConversationType = (
 export const db: Low<Database> = await JSONPreset<Database>("db.json", {
   conversations: [],
   lastUpdated: 0,
-  defaultPlatform: Platform.Google,
+  defaultPlatform: Platform.OpenAI,
 });
 
 db.write();
