@@ -24,7 +24,8 @@ if (process.env.GOOGLE_API_KEY === undefined) {
 }
 
 export const generateResponse = async (
-  userMessage: Message | CommandInteraction
+  userMessage: Message | CommandInteraction,
+  platform?: Platform
 ): Promise<[string, Platform] | null | undefined> => {
   db.read();
 
@@ -58,7 +59,8 @@ export const generateResponse = async (
   if (
     (conversation?.platform === Platform.Google ||
       (conversation?.platform === undefined &&
-        db.data.defaultPlatform === Platform.Google)) &&
+        db.data.defaultPlatform === Platform.Google) ||
+      platform === Platform.Google) &&
     google !== undefined
   ) {
     const model = google.getGenerativeModel({ model: "gemini-pro" });
@@ -87,7 +89,8 @@ export const generateResponse = async (
   } else if (
     (conversation?.platform === Platform.OpenAI ||
       (conversation?.platform === undefined &&
-        db.data.defaultPlatform === Platform.OpenAI)) &&
+        db.data.defaultPlatform === Platform.OpenAI) ||
+      platform === Platform.OpenAI) &&
     openai !== undefined
   ) {
     const completion = await openai.chat.completions.create({

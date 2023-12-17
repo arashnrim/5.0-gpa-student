@@ -56,6 +56,17 @@ export const mapToConversationType = (
   }
 };
 
+export const mapToPlatform = (platform: string): Platform => {
+  switch (platform) {
+    case "openai":
+      return Platform.OpenAI;
+    case "google":
+      return Platform.Google;
+    default:
+      throw new Error(`Unknown platform: ${platform}`);
+  }
+};
+
 export const saveConversation = (data: {
   userMessage: Message | CommandInteraction;
   responseMessage: Message | InteractionResponse;

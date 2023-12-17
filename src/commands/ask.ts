@@ -1,6 +1,6 @@
 import { CommandInteraction, SlashCommandBuilder } from "discord.js";
 import dotenv from "dotenv";
-import { db, saveConversation } from "../util/db";
+import { db, mapToPlatform, saveConversation } from "../util/db";
 import { BotStatus, setBotStatus } from "../util/bot";
 import {
   IN_DEVELOPMENT_STRING,
@@ -62,6 +62,8 @@ export const execute = async (interaction: CommandInteraction) => {
     return;
   }
 
+  const model = interaction.options.get("model")?.value as string;
+
   const thinkingPrompts = [
     "Hmm, lemme think for a moment...",
     "Gimme a sec, I'm thinking...",
@@ -75,7 +77,10 @@ export const execute = async (interaction: CommandInteraction) => {
   );
 
   setBotStatus(BotStatus.Thinking, interaction.client);
-  var generatedResponse = await generateResponse(interaction);
+  var generatedResponse = await generateResponse(
+    interaction,
+    mapToPlatform(model)
+  );
   if (generatedResponse === null || generatedResponse === undefined) {
     console.warn(
       `Generated message is null; this is unexpected. Replied to ${interaction.id} from ${interaction.user.tag} with \`TEXT_GENERATION_ERROR_STRING\`.`
