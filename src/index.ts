@@ -101,13 +101,14 @@ client.on("messageCreate", async (message) => {
   }
 
   if (message.author.bot) return;
-  console.info(
-    `Received message (${message.id}) from ${
-      message.author.tag
-    }: ${message.content.slice(0, 15)}...`
-  );
 
   if (message.mentions.users.has(client.user.id)) {
+    console.info(
+      `Received message (${message.id}) from ${
+        message.author.tag
+      }: ${message.content.slice(0, 15)}...`
+    );
+
     if (
       process.env.NODE_ENV !== "production" &&
       message.guild &&
