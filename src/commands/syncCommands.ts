@@ -25,4 +25,6 @@ export const execute = async (interaction: CommandInteraction) => {
   db.read();
 
   await syncSlashCommands(interaction.client);
+
+  interaction.reply({ content: "Synced slash commands!", ephemeral: true });
 };

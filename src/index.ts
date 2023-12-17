@@ -1,23 +1,16 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import {
-  ActivityType,
-  Client,
-  Collection,
-  GatewayIntentBits,
-  Message,
-  MessageType,
-} from "discord.js";
+import { Client, Collection, GatewayIntentBits } from "discord.js";
 import dotenv from "dotenv";
-import OpenAI from "openai";
+
 import {
   ERROR_REACTION,
   IN_DEVELOPMENT_STRING,
-  PROMPT,
   SUCCESS_REACTION,
   TEXT_GENERATION_ERROR_STRING,
 } from "./constants";
-import { GoogleMessageRole, OpenAIMessageRole, Platform, db } from "./util/db";
+import { db, saveConversation } from "./util/db";
+import { generateResponse } from "./util/response";
 import { getSlashCommands } from "./util/slashCommands";
+import { BotStatus, setBotStatus } from "./util/bot";
 
 dotenv.config();
 
@@ -39,25 +32,6 @@ if (process.env.NODE_ENV !== "production") {
   );
 }
 
-var openai: undefined | OpenAI;
-if (process.env.OPENAI_API_KEY === undefined) {
-  console.warn("OPENAI_API_KEY is not provided. Please check your .env file.");
-  console.warn(
-    "You will not be able to use the completion feature using OpenAI's GPT models."
-  );
-} else {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-}
-var google: undefined | GoogleGenerativeAI;
-if (process.env.GOOGLE_API_KEY === undefined) {
-  console.warn("GOOGLE_API_KEY is not provided. Please check your .env file.");
-  console.warn(
-    "You will not be able to use the completion feature using Google's Gemini models."
-  );
-} else {
-  google = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-}
-
 const client = new Client({
   intents: [
     GatewayIntentBits.GuildMembers,
@@ -66,40 +40,6 @@ const client = new Client({
   ],
 });
 const commands = await getSlashCommands();
-
-enum BotStatus {
-  Ready,
-  Thinking,
-  InDevelopment,
-}
-
-const setBotStatus = (status: BotStatus) => {
-  if (client.user === null) {
-    throw new Error(
-      "`client.user` is null. This should never happen. Investigate immediately."
-    );
-  }
-
-  switch (status) {
-    case BotStatus.Ready:
-      client.user.setActivity({
-        type: ActivityType.Custom,
-        name: "👀 Watching for pings",
-      });
-      break;
-    case BotStatus.Thinking:
-      client.user.setActivity({
-        type: ActivityType.Custom,
-        name: "🤔 Thinking...",
-      });
-      break;
-    case BotStatus.InDevelopment:
-      client.user.setActivity({
-        type: ActivityType.Custom,
-        name: "🛠️ In development",
-      });
-  }
-};
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
@@ -144,7 +84,8 @@ client.on("ready", async () => {
   setBotStatus(
     process.env.NODE_ENV !== "production"
       ? BotStatus.InDevelopment
-      : BotStatus.Ready
+      : BotStatus.Ready,
+    client
   );
 
   console.log(`Logged in as ${client.user.tag}! Listening for events...`);
@@ -192,7 +133,7 @@ client.on("messageCreate", async (message) => {
       thinkingPrompts[Math.floor(Math.random() * thinkingPrompts.length)]
     );
 
-    setBotStatus(BotStatus.Thinking);
+    setBotStatus(BotStatus.Thinking, client);
     var generatedResponse = await generateResponse(message);
     if (generatedResponse === null || generatedResponse === undefined) {
       console.warn(
@@ -200,7 +141,7 @@ client.on("messageCreate", async (message) => {
       );
       await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
       await message.react(ERROR_REACTION);
-      setBotStatus(BotStatus.Ready);
+      setBotStatus(BotStatus.Ready, client);
       return;
     }
     var [responseText, platform] = generatedResponse;
@@ -210,6 +151,12 @@ client.on("messageCreate", async (message) => {
     try {
       await responseMessage.edit(responseText);
       await message.react(SUCCESS_REACTION);
+      saveConversation({
+        userMessage: message,
+        responseMessage,
+        responseText,
+        platform,
+      });
       console.info(
         `Replied to ${message.id} from ${
           message.author.tag
@@ -222,147 +169,12 @@ client.on("messageCreate", async (message) => {
       console.error(error);
       await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
       await message.react(ERROR_REACTION);
-      setBotStatus(BotStatus.Ready);
+      setBotStatus(BotStatus.Ready, client);
       return;
     }
 
-    if (message.type !== MessageType.Reply) {
-      db.data.conversations.push({
-        messages: [
-          {
-            id: message.id,
-            content: message.content,
-            role:
-              platform === Platform.OpenAI
-                ? OpenAIMessageRole.User
-                : GoogleMessageRole.User,
-          },
-          {
-            id: responseMessage.id,
-            content: responseText,
-            role:
-              platform === Platform.OpenAI
-                ? OpenAIMessageRole.Assistant
-                : GoogleMessageRole.Model,
-          },
-        ],
-        platform,
-        lastUpdated: Date.now(),
-      });
-    } else {
-      const conversation = db.data.conversations.find((c) => {
-        return c.messages.some((m) => {
-          return m.id === message.reference?.messageId;
-        });
-      });
-
-      if (conversation) {
-        conversation.messages.push(
-          ...[
-            {
-              id: message.id,
-              content: message.content,
-              role:
-                platform === Platform.OpenAI
-                  ? OpenAIMessageRole.User
-                  : GoogleMessageRole.User,
-            },
-            {
-              id: responseMessage.id,
-              content: responseText,
-              role:
-                platform === Platform.OpenAI
-                  ? OpenAIMessageRole.Assistant
-                  : GoogleMessageRole.Model,
-            },
-          ]
-        );
-        conversation.platform = platform;
-        conversation.lastUpdated = Date.now();
-      }
-    }
-    db.data.lastUpdated = Date.now();
-    db.write();
-
-    setBotStatus(BotStatus.Ready);
+    setBotStatus(BotStatus.Ready, client);
   }
 });
-
-const generateResponse = async (
-  responseMessage: Message
-): Promise<[string, Platform] | null | undefined> => {
-  var conversation;
-  if (responseMessage.type === MessageType.Reply) {
-    conversation = db.data.conversations.find((c) => {
-      return c.messages.some((m) => {
-        return m.id === responseMessage.reference?.messageId;
-      });
-    });
-  }
-
-  if (
-    (conversation?.platform === Platform.Google ||
-      (conversation?.platform === undefined &&
-        db.data.defaultPlatform === Platform.Google)) &&
-    google !== undefined
-  ) {
-    const model = google.getGenerativeModel({ model: "gemini-pro" });
-    const chat = model.startChat({
-      history: [
-        { role: GoogleMessageRole.User, parts: PROMPT },
-        {
-          role: GoogleMessageRole.Model,
-          parts: "Understood. I will abide by the prompt given to me.",
-        },
-        ...(conversation
-          ? conversation.messages.map((conversationMessage) => ({
-              role: conversationMessage.role as GoogleMessageRole,
-              parts: conversationMessage.content,
-            }))
-          : []),
-      ],
-      generationConfig: {
-        maxOutputTokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
-      },
-    });
-
-    const completion = await chat.sendMessage(responseMessage.content);
-    const response = await completion.response;
-    return [response.text(), Platform.Google];
-  } else if (
-    (conversation?.platform === Platform.OpenAI ||
-      (conversation?.platform === undefined &&
-        db.data.defaultPlatform === Platform.OpenAI)) &&
-    openai !== undefined
-  ) {
-    const completion = await openai.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: PROMPT,
-        },
-        ...(conversation
-          ? conversation.messages.map((conversationMessage) => ({
-              role: conversationMessage.role as OpenAIMessageRole,
-              content: conversationMessage.content,
-            }))
-          : []),
-        {
-          role: "user",
-          content: responseMessage.content,
-        },
-      ],
-      model: "gpt-4-1106-preview",
-      max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
-    });
-
-    const responseText = completion.choices[0].message.content;
-    if (responseText === null) {
-      return null;
-    } else {
-      return [responseText, Platform.OpenAI];
-    }
-  }
-};
 
 client.login(process.env.BOT_TOKEN);
