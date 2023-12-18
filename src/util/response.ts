@@ -11,7 +11,12 @@ if (process.env.OPENAI_API_KEY === undefined) {
     "You will not be able to use the completion feature using OpenAI's GPT models."
   );
 } else {
-  openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    organization: process.env.OPENAI_ORG_ID
+      ? process.env.OPENAI_ORG_ID
+      : undefined,
+  });
 }
 var google: undefined | GoogleGenerativeAI;
 if (process.env.GOOGLE_API_KEY === undefined) {
