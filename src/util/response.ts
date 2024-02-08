@@ -115,7 +115,7 @@ export const generateResponse = async (
           content,
         },
       ],
-      model: "gpt-4-1106-preview",
+      model: "gpt-4-0125-preview",
       max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
     });
 
