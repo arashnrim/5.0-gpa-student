@@ -5,7 +5,7 @@ import {
   MessageType,
 } from "discord.js";
 import type { Low } from "lowdb";
-import { JSONPreset } from "lowdb/node";
+import { JSONFilePreset } from "lowdb/node";
 
 export enum OpenAIMessageRole {
   User = "user",
@@ -139,7 +139,7 @@ export const saveConversation = (data: {
   db.write();
 };
 
-export const db: Low<Database> = await JSONPreset<Database>("db.json", {
+export const db: Low<Database> = await JSONFilePreset<Database>("db.json", {
   conversations: [],
   lastUpdated: 0,
   defaultPlatform: Platform.OpenAI,

@@ -28,7 +28,7 @@ if (process.env.NODE_ENV !== "production") {
   DEVELOPMENT_SERVER_ID = process.env.DEVELOPMENT_SERVER_ID;
 
   console.warn(
-    "You are not running in production mode. In this mode, the bot will not respond to messages except for the ones whitelisted in the `DEVELOPMENT_SERVERS` variable."
+    "You are not running in production mode. In this mode, the bot will not respond to messages except for the ones whitelisted in the `DEVELOPMENT_SERVER_ID` variable."
   );
 }
 
@@ -142,7 +142,12 @@ client.on("messageCreate", async (message) => {
       );
       await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
       await message.react(ERROR_REACTION);
-      setBotStatus(BotStatus.Ready, client);
+      setBotStatus(
+        process.env.NODE_ENV !== "production"
+          ? BotStatus.InDevelopment
+          : BotStatus.Ready,
+        client
+      );
       return;
     }
     var [responseText, platform] = generatedResponse;
@@ -170,11 +175,21 @@ client.on("messageCreate", async (message) => {
       console.error(error);
       await responseMessage.edit(TEXT_GENERATION_ERROR_STRING);
       await message.react(ERROR_REACTION);
-      setBotStatus(BotStatus.Ready, client);
+      setBotStatus(
+        process.env.NODE_ENV !== "production"
+          ? BotStatus.InDevelopment
+          : BotStatus.Ready,
+        client
+      );
       return;
     }
 
-    setBotStatus(BotStatus.Ready, client);
+    setBotStatus(
+      process.env.NODE_ENV !== "production"
+        ? BotStatus.InDevelopment
+        : BotStatus.Ready,
+      client
+    );
   }
 });
 
