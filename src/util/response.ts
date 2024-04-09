@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CommandInteraction, Message, MessageType } from "discord.js";
 import OpenAI from "openai";
-import { PROMPT } from "../constants";
+import { PROMPT, addContextToPrompt } from "../constants";
 import { GoogleMessageRole, OpenAIMessageRole, Platform, db } from "./db";
 
 var openai: undefined | OpenAI;
@@ -26,6 +26,10 @@ if (process.env.GOOGLE_API_KEY === undefined) {
   );
 } else {
   google = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+}
+
+if (process.env.BOT_TOKEN === undefined) {
+  throw new Error("BOT_TOKEN must be provided. Please check your .env file.");
 }
 
 export const generateResponse = async (
@@ -61,6 +65,9 @@ export const generateResponse = async (
     );
   }
 
+  // Strips out the bot mention from the message content
+  content = content.replaceAll(`@${userMessage.client.user.id}`, "");
+
   if (
     (conversation?.platform === Platform.Google ||
       (conversation?.platform === undefined &&
@@ -71,7 +78,16 @@ export const generateResponse = async (
     const model = google.getGenerativeModel({ model: "gemini-pro" });
     const chat = model.startChat({
       history: [
-        { role: GoogleMessageRole.User, parts: [{ text: PROMPT }] },
+        {
+          role: GoogleMessageRole.User,
+          parts: [
+            {
+              text: userMessage.member
+                ? addContextToPrompt(userMessage.member.user.id)
+                : PROMPT,
+            },
+          ],
+        },
         {
           role: GoogleMessageRole.Model,
           parts: [
@@ -104,7 +120,9 @@ export const generateResponse = async (
       messages: [
         {
           role: "system",
-          content: PROMPT,
+          content: userMessage.member
+            ? addContextToPrompt(userMessage.member.user.id)
+            : PROMPT,
         },
         ...(conversation
           ? conversation.messages.map((conversationMessage) => ({
