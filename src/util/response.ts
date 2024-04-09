@@ -71,15 +71,17 @@ export const generateResponse = async (
     const model = google.getGenerativeModel({ model: "gemini-pro" });
     const chat = model.startChat({
       history: [
-        { role: GoogleMessageRole.User, parts: PROMPT },
+        { role: GoogleMessageRole.User, parts: [{ text: PROMPT }] },
         {
           role: GoogleMessageRole.Model,
-          parts: "Understood. I will abide by the prompt given to me.",
+          parts: [
+            { text: "Understood. I will abide by the prompt given to me." },
+          ],
         },
         ...(conversation
           ? conversation.messages.map((conversationMessage) => ({
               role: conversationMessage.role as GoogleMessageRole,
-              parts: conversationMessage.content,
+              parts: [{ text: conversationMessage.content }],
             }))
           : []),
       ],
