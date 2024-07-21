@@ -75,7 +75,7 @@ export const generateResponse = async (
       platform === Platform.Google) &&
     google !== undefined
   ) {
-    const model = google.getGenerativeModel({ model: "gemini-pro" });
+    const model = google.getGenerativeModel({ model: "gemini-1.5-pro-001" });
     const chat = model.startChat({
       history: [
         {
@@ -135,7 +135,7 @@ export const generateResponse = async (
           content,
         },
       ],
-      model: "gpt-4-0125-preview",
+      model: "gpt-4o",
       max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
     });
 
