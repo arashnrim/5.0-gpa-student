@@ -28,6 +28,9 @@ if (process.env.GOOGLE_API_KEY === undefined) {
   google = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 }
 
+const OPENAI_MODEL = "gpt-4o";
+const GOOGLE_MODEL = "gemini-1.5-pro";
+
 if (process.env.BOT_TOKEN === undefined) {
   throw new Error("BOT_TOKEN must be provided. Please check your .env file.");
 }
@@ -75,7 +78,7 @@ export const generateResponse = async (
       platform === Platform.Google) &&
     google !== undefined
   ) {
-    const model = google.getGenerativeModel({ model: "gemini-1.5-pro-001" });
+    const model = google.getGenerativeModel({ model: GOOGLE_MODEL });
     const chat = model.startChat({
       history: [
         {
@@ -135,7 +138,7 @@ export const generateResponse = async (
           content,
         },
       ],
-      model: "gpt-4o",
+      model: OPENAI_MODEL,
       max_tokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
     });
 
