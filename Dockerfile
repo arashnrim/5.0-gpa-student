@@ -1,4 +1,4 @@
-FROM oven/bun:1 as base
+FROM oven/bun:latest as base
 
 WORKDIR /app
 
@@ -14,4 +14,4 @@ COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 
 # Run the app
-ENTRYPOINT [ "bun", "src/index.ts" ]
+ENTRYPOINT [ "bun", "run", "start" ]
