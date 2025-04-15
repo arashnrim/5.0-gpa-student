@@ -14,11 +14,11 @@ export const data = new SlashCommandBuilder()
       .setRequired(true)
       .addChoices(
         {
-          name: "GPT-4 Turbo",
+          name: "GPT-4.1 (experimental)",
           value: "openai",
         },
         {
-          name: "Gemini Pro",
+          name: "Gemini 2.5 Pro (experimental)",
           value: "google",
         }
       )

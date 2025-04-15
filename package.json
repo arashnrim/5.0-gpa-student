@@ -4,21 +4,23 @@
   "description": "A Discord bot for a special server.",
   "main": "index.js",
   "scripts": {
-    "start": "bun run --watch src/index.ts"
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.17.1",
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1",
+    "@google/genai": "^0.8.0",
+    "@google/generative-ai": "^0.17.2",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.5.0",
     "lowdb": "^7.0.1",
-    "openai": "^4.21.0"
+    "openai": "^4.93.0"
   },
   "devDependencies": {
-    "bun-types": "^1.0.17",
-    "typescript": "^5.3.3"
+    "bun-types": "^1.2.9",
+    "typescript": "^5.8.3"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"

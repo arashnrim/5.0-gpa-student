@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { CommandInteraction, Message, MessageType } from "discord.js";
 import OpenAI from "openai";
 import { PROMPT, addContextToPrompt } from "../constants";
@@ -19,6 +20,7 @@ if (process.env.OPENAI_API_KEY === undefined) {
   });
 }
 var google: undefined | GoogleGenerativeAI;
+var googleGenAI: undefined | GoogleGenAI;
 if (process.env.GOOGLE_API_KEY === undefined) {
   console.warn("GOOGLE_API_KEY is not provided. Please check your .env file.");
   console.warn(
@@ -26,10 +28,11 @@ if (process.env.GOOGLE_API_KEY === undefined) {
   );
 } else {
   google = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+  googleGenAI = new GoogleGenAI({ apiKey: process.env.GOOGLE_API_KEY });
 }
 
-const OPENAI_MODEL = "gpt-4o";
-const GOOGLE_MODEL = "gemini-1.5-pro";
+const OPENAI_MODEL = "gpt-4.1-2025-04-14";
+const GOOGLE_MODEL = "gemini-2.5-pro-exp-03-25";
 
 if (process.env.BOT_TOKEN === undefined) {
   throw new Error("BOT_TOKEN must be provided. Please check your .env file.");
@@ -111,7 +114,40 @@ export const generateResponse = async (
 
     const completion = await chat.sendMessage(content);
     const response = await completion.response;
-    return [response.text(), Platform.Google];
+
+    const newChat = await googleGenAI?.chats.create({
+      model: GOOGLE_MODEL,
+      history: [
+        {
+          role: GoogleMessageRole.User,
+          parts: [
+            {
+              text: userMessage.member
+                ? addContextToPrompt(userMessage.member.user.id)
+                : PROMPT,
+            },
+          ],
+        },
+        {
+          role: GoogleMessageRole.Model,
+          parts: [
+            { text: "Understood. I will abide by the prompt given to me." },
+          ],
+        },
+        ...(conversation
+          ? conversation.messages.map((conversationMessage) => ({
+              role: conversationMessage.role as GoogleMessageRole,
+              parts: [{ text: conversationMessage.content }],
+            }))
+          : []),
+      ],
+      config: {
+        maxOutputTokens: 410, // Discord has a limit of 2000 characters/message; 410 tokens ~ <2000 characters
+      },
+    });
+    const newResponse = await newChat?.sendMessage({ message: content });
+
+    return [newResponse?.text ?? "", Platform.Google];
   } else if (
     (conversation?.platform === Platform.OpenAI ||
       (conversation?.platform === undefined &&
